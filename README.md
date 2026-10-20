@@ -1,3 +1,5 @@
+[![Site check](https://github.com/ahammondspcx-gis/global-monitoring/actions/workflows/check.yml/badge.svg)](https://github.com/ahammondspcx-gis/global-monitoring/actions/workflows/check.yml)
+
 # global-monitoring
 Checks the Global website every 4 hours and posts the status to Slack. 
 
