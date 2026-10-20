@@ -1,0 +1,48 @@
+name: Site check
+on:
+  schedule:
+    - cron: '0 */4 * * *'   # every 4 hours, UTC
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check site
+        env:
+          URL: ${{ secrets.SITE }}  # PROD: real site
+          # URL: https://thissitedoesnotexisit.com  # TEST: fake site to force an alert
+          WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}  # MONITORING webhook -> #spx-monitoring
+          # WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}  # PRIMARY webhook -> #spx-main
+        run: |
+          # Stop early if the webhook secret is missing
+          if [ -z "$WEBHOOK" ]; then
+            echo "ERROR: Slack webhook secret is missing or empty."
+            exit 1
+          fi
+
+          # Send a message to Slack
+          notify() {
+            curl -s -w '\nSlack HTTP %{http_code}\n' -X POST -H 'Content-type: application/json' \
+              --data "{\"text\":\"$1\"}" \
+              "$WEBHOOK"
+          }
+
+          # Try up to 3 times before reporting an error
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -L -w '%{http_code}' --max-time 30 "$URL" || true)
+            if [ "$code" != "000" ] && [ "$code" -lt 400 ]; then
+              echo "Site is up (HTTP $code) on attempt $i."
+              notify ":white_check_mark: $URL is up (HTTP $code)"
+              exit 0
+            fi
+            echo "Attempt $i failed (HTTP $code)."
+            if [ "$i" -lt 3 ]; then
+              sleep 30  # PROD
+              # sleep 15  # TEST
+            fi
+          done
+
+          # All 3 tries failed - send error
+          notify ":rotating_light: $URL is DOWN after 3 tries (HTTP $code)"
+          exit 1
