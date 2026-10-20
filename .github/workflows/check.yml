@@ -11,12 +11,13 @@ jobs:
       - name: Check site
         env:
           # URL: ${{ secrets.SITE }}
-          URL: https://thissitedoesnotexisit.com/
-          WEBHOOK_SLACK_GA_MONITORING: ${{ secrets.SLACK_GA_MONITORING }}
-          # WEBHOOK_SLACK_WEBHOOK_GA: ${{ secrets.SLACK_WEBHOOK_GA }}
+          URL: https://thissitedoesnotexisit.com
+          # Keep exactly one pair uncommented.
+          WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}
+          WEBHOOK_NAME: SLACK_GA_MONITORING
+          # WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}
+          # WEBHOOK_NAME: SLACK_WEBHOOK_GA
         run: |
-          # GitHub runs this script with "bash -e". Turn that off so one
-          # failed Slack post cannot skip the other webhook.
           set +e
 
           URL=$(printf '%s' "$URL" | tr -d '[:space:]')
@@ -25,26 +26,24 @@ jobs:
             echo "SITE secret is empty." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          if [ -z "$WEBHOOK" ]; then
+            echo "ERROR: webhook secret is missing or empty ($WEBHOOK_NAME)."
+            echo "Webhook secret is empty ($WEBHOOK_NAME)." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
           notify() {
-            text="$1"
-            label="$2"
-            hook="$3"
-            if [ -z "$hook" ]; then
-              echo "SKIP $label: secret is empty."
-              return 1
-            fi
-            payload=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "[$label] $text")
-            echo "Posting to $label"
+            payload=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "[$WEBHOOK_NAME] $1")
+            echo "Posting to $WEBHOOK_NAME"
             body=$(curl -sS -w "\n%{http_code}" -X POST \
               -H "Content-type: application/json" \
               --data "$payload" \
               --max-time 30 \
-              "$hook")
+              "$WEBHOOK")
             rc=$?
             echo "$body"
             if [ "$rc" -ne 0 ]; then
-              echo "ERROR: curl to $label failed (exit $rc)."
+              echo "ERROR: curl to $WEBHOOK_NAME failed (exit $rc)."
               return 1
             fi
             return 0
@@ -59,9 +58,8 @@ jobs:
             fi
             if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
               echo "Site is up (HTTP $code) on attempt $i."
-              echo "UP HTTP $code on attempt $i" >> "$GITHUB_STEP_SUMMARY"
-              notify "$URL is up (HTTP $code)" "SLACK_GA_MONITORING" "$WEBHOOK_SLACK_GA_MONITORING"
-              notify "$URL is up (HTTP $code)" "SLACK_WEBHOOK_GA" "$WEBHOOK_SLACK_WEBHOOK_GA"
+              echo "UP HTTP $code on attempt $i via $WEBHOOK_NAME" >> "$GITHUB_STEP_SUMMARY"
+              notify "$URL is up (HTTP $code)"
               exit 0
             fi
             echo "Attempt $i failed (HTTP $code)."
@@ -70,7 +68,6 @@ jobs:
             fi
           done
 
-          echo "DOWN after 3 tries, last HTTP $code" >> "$GITHUB_STEP_SUMMARY"
-          notify "$URL is DOWN after 3 tries (HTTP $code)" "SLACK_GA_MONITORING" "$WEBHOOK_SLACK_GA_MONITORING"
-          notify "$URL is DOWN after 3 tries (HTTP $code)" "SLACK_WEBHOOK_GA" "$WEBHOOK_SLACK_WEBHOOK_GA"
+          echo "DOWN after 3 tries, last HTTP $code via $WEBHOOK_NAME" >> "$GITHUB_STEP_SUMMARY"
+          notify "$URL is DOWN after 3 tries (HTTP $code)"
           exit 1
