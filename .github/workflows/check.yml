@@ -13,10 +13,10 @@ jobs:
           # URL: ${{ secrets.SITE }}
           URL: https://thissitedoesnotexisit.com
           # Keep exactly one pair uncommented.
-          WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}
-          WEBHOOK_NAME: SLACK_GA_MONITORING
-          # WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}
-          # WEBHOOK_NAME: SLACK_WEBHOOK_GA
+          # WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}
+          # WEBHOOK_NAME: SLACK_GA_MONITORING
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}
+          WEBHOOK_NAME: SLACK_WEBHOOK_GA
         run: |
           set +e
 
