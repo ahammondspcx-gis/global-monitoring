@@ -1,9 +1,8 @@
 name: Site check
-
 "on":
   schedule:
-    - cron: '0 */4 * * *' # every 4 hours, UTC
-  workflow_dispatch:
+    - cron: "0 */4 * * *"
+  workflow_dispatch: {}
 
 jobs:
   check:
@@ -11,58 +10,67 @@ jobs:
     steps:
       - name: Check site
         env:
-          # URL: ${{ secrets.SITE }} # PROD: real site
-          URL: https://thissitedoesnotexist.com # TEST: fake site to force an alert
-          # Two lines so one run shows which secret lands in which channel.
+          # URL: ${{ secrets.SITE }}
+          URL: https://thissitedoesnotexisit.com/
           WEBHOOK_SLACK_GA_MONITORING: ${{ secrets.SLACK_GA_MONITORING }}
           # WEBHOOK_SLACK_WEBHOOK_GA: ${{ secrets.SLACK_WEBHOOK_GA }}
         run: |
-          # Stop early if a required secret is missing
-          if [ -z "${URL}" ]; then
+          # GitHub runs this script with "bash -e". Turn that off so one
+          # failed Slack post cannot skip the other webhook.
+          set +e
+
+          URL=$(printf '%s' "$URL" | tr -d '[:space:]')
+          if [ -z "$URL" ]; then
             echo "ERROR: SITE secret is missing or empty."
-            exit 1
-          fi
-          if [ -z "${WEBHOOK_SLACK_GA_MONITORING}" ] || [ -z "${WEBHOOK_SLACK_WEBHOOK_GA}" ]; then
-            echo "ERROR: One or both Slack webhook secrets are missing or empty."
-            echo "Need secrets SLACK_GA_MONITORING and SLACK_WEBHOOK_GA."
+            echo "SITE secret is empty." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
-          # Send the same message to both webhooks. The label is the secret name.
           notify() {
             text="$1"
             label="$2"
             hook="$3"
-            payload=$(jq -nc --arg text "[$label] $text" '{text:$text}')
+            if [ -z "$hook" ]; then
+              echo "SKIP $label: secret is empty."
+              return 1
+            fi
+            payload=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "[$label] $text")
             echo "Posting to $label"
-            curl -sS -w "\nSlack HTTP %{http_code} ($label)\n" -X POST \
-              -H 'Content-type: application/json' \
+            body=$(curl -sS -w "\n%{http_code}" -X POST \
+              -H "Content-type: application/json" \
               --data "$payload" \
               --max-time 30 \
-              "$hook"
+              "$hook")
+            rc=$?
+            echo "$body"
+            if [ "$rc" -ne 0 ]; then
+              echo "ERROR: curl to $label failed (exit $rc)."
+              return 1
+            fi
+            return 0
           }
 
-          # Try up to 3 times before reporting an error
+          code=000
           for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -L -w '%{http_code}' --max-time 30 "$URL" || true)
-            case "$code" in
-              [1-9][0-9][0-9]) ;;
-              *) code=000 ;;
-            esac
+            code=$(curl -s -o /dev/null -L -w "%{http_code}" --max-time 30 "$URL" || true)
+            code=$(printf '%s' "$code" | tr -cd '0-9')
+            if [ -z "$code" ]; then
+              code=000
+            fi
             if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
               echo "Site is up (HTTP $code) on attempt $i."
+              echo "UP HTTP $code on attempt $i" >> "$GITHUB_STEP_SUMMARY"
               notify "$URL is up (HTTP $code)" "SLACK_GA_MONITORING" "$WEBHOOK_SLACK_GA_MONITORING"
               notify "$URL is up (HTTP $code)" "SLACK_WEBHOOK_GA" "$WEBHOOK_SLACK_WEBHOOK_GA"
               exit 0
             fi
             echo "Attempt $i failed (HTTP $code)."
             if [ "$i" -lt 3 ]; then
-              sleep 30 # PROD
-              # sleep 15 # TEST
+              sleep 30
             fi
           done
 
-          # All 3 tries failed - send error to both webhooks
+          echo "DOWN after 3 tries, last HTTP $code" >> "$GITHUB_STEP_SUMMARY"
           notify "$URL is DOWN after 3 tries (HTTP $code)" "SLACK_GA_MONITORING" "$WEBHOOK_SLACK_GA_MONITORING"
           notify "$URL is DOWN after 3 tries (HTTP $code)" "SLACK_WEBHOOK_GA" "$WEBHOOK_SLACK_WEBHOOK_GA"
           exit 1
