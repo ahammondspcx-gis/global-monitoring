@@ -1,6 +1,7 @@
 name: Site check
 "on":
   schedule:
+    # Every 4 hours at minute 0, UTC: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00
     - cron: "0 */4 * * *"
   workflow_dispatch: {}
 
@@ -10,13 +11,8 @@ jobs:
     steps:
       - name: Check site
         env:
-          # URL: ${{ secrets.SITE }}
-          URL: https://thissitedoesnotexisit.com
-          # Keep exactly one pair uncommented.
-          # WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}
-          # WEBHOOK_NAME: SLACK_GA_MONITORING
+          URL: ${{ secrets.SITE }}
           WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}
-          WEBHOOK_NAME: SLACK_WEBHOOK_GA
         run: |
           set +e
 
@@ -27,14 +23,15 @@ jobs:
             exit 1
           fi
           if [ -z "$WEBHOOK" ]; then
-            echo "ERROR: webhook secret is missing or empty ($WEBHOOK_NAME)."
-            echo "Webhook secret is empty ($WEBHOOK_NAME)." >> "$GITHUB_STEP_SUMMARY"
+            echo "ERROR: SLACK_WEBHOOK_GA secret is missing or empty."
+            echo "SLACK_WEBHOOK_GA secret is empty." >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
 
+          # $1 = message text, $2 = Slack color: good (success) or danger (failure)
           notify() {
-            payload=$(python3 -c 'import json,sys; print(json.dumps({"text": sys.argv[1]}))' "[$WEBHOOK_NAME] $1")
-            echo "Posting to $WEBHOOK_NAME"
+            payload=$(python3 -c 'import json,sys; print(json.dumps({"attachments":[{"color":sys.argv[2],"text":sys.argv[1]}]}))' "$1" "$2")
+            echo "Posting to SLACK_WEBHOOK_GA"
             body=$(curl -sS -w "\n%{http_code}" -X POST \
               -H "Content-type: application/json" \
               --data "$payload" \
@@ -43,7 +40,7 @@ jobs:
             rc=$?
             echo "$body"
             if [ "$rc" -ne 0 ]; then
-              echo "ERROR: curl to $WEBHOOK_NAME failed (exit $rc)."
+              echo "ERROR: curl to SLACK_WEBHOOK_GA failed (exit $rc)."
               return 1
             fi
             return 0
@@ -58,8 +55,8 @@ jobs:
             fi
             if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
               echo "Site is up (HTTP $code) on attempt $i."
-              echo "UP HTTP $code on attempt $i via $WEBHOOK_NAME" >> "$GITHUB_STEP_SUMMARY"
-              notify "$URL is up (HTTP $code)"
+              echo "UP HTTP $code on attempt $i" >> "$GITHUB_STEP_SUMMARY"
+              notify "Site check successful: $URL is up (HTTP $code)" good
               exit 0
             fi
             echo "Attempt $i failed (HTTP $code)."
@@ -68,6 +65,6 @@ jobs:
             fi
           done
 
-          echo "DOWN after 3 tries, last HTTP $code via $WEBHOOK_NAME" >> "$GITHUB_STEP_SUMMARY"
-          notify "$URL is DOWN after 3 tries (HTTP $code)"
+          echo "DOWN after 3 tries, last HTTP $code" >> "$GITHUB_STEP_SUMMARY"
+          notify "Site check failed: $URL is DOWN after 3 tries (HTTP $code)" danger
           exit 1
