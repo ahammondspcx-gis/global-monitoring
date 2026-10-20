@@ -10,8 +10,8 @@ jobs:
     steps:
       - name: Check site
         env:
-          URL: ${{ secrets.SITE }}  # PROD: real site
-          # URL: https://thissitedoesnotexisit.com  # TEST: fake site to force an alert
+          # URL: ${{ secrets.SITE }}  # PROD: real site
+          URL: https://thissitedoesnotexisit.com  # TEST: fake site to force an alert
           WEBHOOK: ${{ secrets.SLACK_GA_MONITORING }}  # MONITORING webhook -> #spx-monitoring
           # WEBHOOK: ${{ secrets.SLACK_WEBHOOK_GA }}  # PRIMARY webhook -> #spx-main
         run: |
